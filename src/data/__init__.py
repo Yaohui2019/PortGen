@@ -21,4 +21,3 @@ __all__ = [
     "create_data_portal",
     "get_pricing",
 ]
-

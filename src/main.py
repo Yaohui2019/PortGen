@@ -33,13 +33,16 @@ from .data import (
     register_data_bundle,
 )
 from .factors import (
+    create_sentiment_factors,
+    load_and_process_10k_sentiment_data,
     mean_reversion_5day_sector_neutral,
     mean_reversion_5day_sector_neutral_smoothed,
     momentum_1yr,
     overnight_sentiment,
     overnight_sentiment_smoothed,
+    scrape_and_process_10k_sentiment_data,
 )
-from .ml import NoOverlapVoter, sharpe_ratio, train_valid_test_split
+from .ml import NoOverlapVoter, train_valid_test_split
 from .optimization import (
     OptimalHoldings,
     OptimalHoldingsRegualization,
@@ -52,14 +55,8 @@ from .risk import (
     fit_pca,
     idiosyncratic_var_matrix,
     idiosyncratic_var_vector,
-    predict_portfolio_risk,
 )
-from .utils import (
-    Sector,
-    get_alpha_vector,
-    get_factor_exposures,
-    show_sample_results,
-)
+from .utils import Sector, get_alpha_vector
 
 
 class MarketDispersion(CustomFactor):
@@ -92,7 +89,9 @@ class MarketVolatility(CustomFactor):
 class PortfolioGenerator:
     """Main class for quantitative portfolio generation."""
 
-    def __init__(self, data_path=None):
+    def __init__(
+        self, data_path=None, sentiment_data_path=None, cache_dir=None
+    ):
         """
         Initialize the portfolio generator.
 
@@ -100,8 +99,14 @@ class PortfolioGenerator:
         ----------
         data_path : str, optional
             Path to the data directory
+        sentiment_data_path : str, optional
+            Path to the sentiment data directory
+        cache_dir : str, optional
+            Directory to cache scraped filings
         """
         self.data_path = data_path
+        self.sentiment_data_path = sentiment_data_path
+        self.cache_dir = cache_dir
         self.bundle_data = None
         self.trading_calendar = None
         self.engine = None
@@ -111,6 +116,7 @@ class PortfolioGenerator:
         self.risk_model = None
         self.all_factors = None
         self.classifier = None
+        self.sentiment_factors = None
 
     def setup_data(self):
         """Setup data bundle, calendar, and pipeline engine."""
@@ -240,6 +246,107 @@ class PortfolioGenerator:
 
         print("Risk model complete.")
 
+    def process_sentiment_data(
+        self, raw_fillings_path=None, output_path=None
+    ):
+        """
+        Process 10K sentiment data for use in the pipeline.
+
+        Parameters
+        ----------
+        raw_fillings_path : str, optional
+            Path to raw 10K filings data
+        output_path : str, optional
+            Path to save processed sentiment data
+        """
+        if self.sentiment_data_path is None:
+            print(
+                "No sentiment data path provided. "
+                "Skipping sentiment processing."
+            )
+            return
+
+        if output_path is None:
+            output_path = os.path.join(
+                self.sentiment_data_path, "processed_sentiment_data.csv"
+            )
+
+        print("Processing 10K sentiment data...")
+
+        # Process sentiment data from 10K filings
+        load_and_process_10k_sentiment_data(
+            raw_fillings_path or self.sentiment_data_path, output_path
+        )
+
+        print("Sentiment data processing complete.")
+
+    def scrape_10k_data(
+        self,
+        tickers,
+        years_back=5,
+        delay=0.1,
+        raw_filings_path=None,
+        output_path=None,
+    ):
+        """
+        Scrape 10-K filings and optionally process them for sentiment analysis.
+
+        Parameters
+        ----------
+        tickers : list
+            List of stock ticker symbols to scrape
+        years_back : int, default 5
+            Number of years back to scrape
+        delay : float, default 0.1
+            Delay between requests in seconds
+        raw_filings_path : str, optional
+            Path to save raw filings
+        output_path : str, optional
+            Path to save processed sentiment data
+
+        Returns
+        -------
+        dict or pd.DataFrame
+            Raw filings dict if output_path is None, otherwise processed sentiment data
+        """
+        if not tickers:
+            print("No tickers provided for scraping.")
+            return {}
+
+        if not self.sentiment_data_path:
+            print(
+                "No sentiment data path provided. Cannot save scraped data."
+            )
+            return {}
+
+        # Set default paths
+        if not raw_filings_path:
+            raw_filings_path = os.path.join(
+                self.sentiment_data_path, "raw_fillings_by_ticker.csv"
+            )
+
+        if not output_path:
+            output_path = os.path.join(
+                self.sentiment_data_path, "processed_sentiment_data.csv"
+            )
+
+        print(f"Scraping 10-K data for {len(tickers)} companies...")
+        print(f"Tickers: {', '.join(tickers)}")
+        print(f"Years back: {years_back}")
+        print(f"Delay: {delay}s")
+        print()
+
+        # Scrape and process sentiment data
+        sentiment_data = scrape_and_process_10k_sentiment_data(
+            tickers=tickers,
+            output_path=output_path,
+            years_back=years_back,
+            delay=delay,
+            cache_dir=self.cache_dir,
+        )
+
+        return sentiment_data
+
     def generate_alpha_factors(self, factor_start_date, universe_end_date):
         """
         Generate alpha factors using the pipeline.
@@ -326,6 +433,25 @@ class PortfolioGenerator:
         pipeline.add(
             MarketVolatility(window_length=120), "market_vol_120d"
         )
+
+        # Add sentiment factors if available
+        if self.sentiment_data_path:
+            sentiment_data_file = os.path.join(
+                self.sentiment_data_path, "processed_sentiment_data.csv"
+            )
+            if os.path.exists(sentiment_data_file):
+                print("Adding sentiment factors to pipeline...")
+                sentiment_factors = create_sentiment_factors(
+                    sentiment_data_file, self.universe
+                )
+                for factor_name, factor in sentiment_factors.items():
+                    pipeline.add(factor, factor_name)
+                self.sentiment_factors = sentiment_factors
+            else:
+                print(
+                    "Sentiment data file not found. "
+                    "Skipping sentiment factors."
+                )
 
         # Add target
         pipeline.add(
@@ -454,6 +580,22 @@ class PortfolioGenerator:
             "qtr_start",
         ]
 
+        # Add sentiment features if available
+        if self.sentiment_factors:
+            sentiment_types = [
+                "negative",
+                "positive",
+                "uncertainty",
+                "litigious",
+                "constraining",
+                "interesting",
+            ]
+            sentiment_features = [
+                f"sentiment_{sentiment_type}"
+                for sentiment_type in sentiment_types
+            ]
+            features.extend(sentiment_features)
+
         # Add sector columns
         sector_columns = [
             col
@@ -523,6 +665,22 @@ class PortfolioGenerator:
             "adv_120d",
             "volatility_20d",
         ]
+
+        # Add sentiment factors to alpha vector if available
+        if self.sentiment_factors:
+            sentiment_types = [
+                "negative",
+                "positive",
+                "uncertainty",
+                "litigious",
+                "constraining",
+                "interesting",
+            ]
+            sentiment_factor_names = [
+                f"sentiment_{sentiment_type}"
+                for sentiment_type in sentiment_types
+            ]
+            factor_names.extend(sentiment_factor_names)
 
         # Get test data for alpha vector
         features = [
@@ -619,6 +777,10 @@ class PortfolioGenerator:
 
         # Setup
         self.setup_data()
+
+        # Process sentiment data if available
+        if self.sentiment_data_path:
+            self.process_sentiment_data()
 
         # Build risk model
         self.build_risk_model(universe_end_date)

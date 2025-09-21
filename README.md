@@ -94,20 +94,6 @@ results = generator.run_full_pipeline()
 print(f"Portfolio Sharpe Ratio: {results['sharpe_ratio']:.3f}")
 ```
 
-### Example 3: Custom Sentiment Analysis
-
-```python
-from src.factors.sentiment_processor import SentimentProcessor
-
-# Initialize sentiment processor
-processor = SentimentProcessor(cache_dir="data/cache")
-
-# Process custom 10-K data
-sentiment_data = processor.process_sentiment_data(
-    filings_data="path/to/your/filings.csv",
-    output_path="data/sentiment_data/custom_sentiment.csv"
-)
-```
 
 ## Architecture Overview
 

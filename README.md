@@ -26,7 +26,6 @@ A comprehensive quantitative finance pipeline that generates optimized portfolio
 
 ### Prerequisites
 - Python 3.7+
-- Git
 
 ### Setup Instructions
 
@@ -39,60 +38,13 @@ A comprehensive quantitative finance pipeline that generates optimized portfolio
 2. **Create a virtual environment:**
    ```bash
    python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   source venv/bin/activate 
    ```
 
 3. **Install dependencies:**
    ```bash
    pip install -r requirements.txt
    ```
-
-4. **Download NLTK data (for sentiment analysis):**
-   ```python
-   import nltk
-   nltk.download('punkt')
-   nltk.download('stopwords')
-   nltk.download('wordnet')
-   nltk.download('averaged_perceptron_tagger')
-   ```
-
-5. **Set up data directories:**
-   ```bash
-   mkdir -p data/sentiment_data
-   mkdir -p data/cache
-   ```
-
-## Quick Start
-
-### Basic Portfolio Generation
-
-```python
-from src.main import PortfolioGenerator
-
-# Initialize the portfolio generator
-generator = PortfolioGenerator(
-    data_path="data/project_4_eod",
-    sentiment_data_path="data/sentiment_data",
-    cache_dir="data/cache"
-)
-
-# Run the complete pipeline
-results = generator.run_full_pipeline()
-```
-
-### With Sentiment Analysis
-
-```python
-# Process existing sentiment data
-generator.process_sentiment_data()
-
-# Or scrape new 10-K data
-tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA']
-generator.scrape_10k_data(tickers, years_back=3)
-
-# Generate portfolio with sentiment factors
-results = generator.run_full_pipeline()
-```
 
 ## Sample Usage Examples
 
